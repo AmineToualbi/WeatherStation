@@ -8,24 +8,23 @@
 #include <SD.h>                 // Standard Arduino SD Card Reader I2C Library
 #include <Adafruit_MPL115A2.h>  //This is the replacement for BMP180
 
-const int chipSelect = 4;
 
-// Pins for HCSR04 - ultrasonic sensor. 
+// Pins for HCSR04 - ultrasonic sensor.
 const int TRIG_PIN = 5;
 const int ECHO_PIN = 6;
-HCSR04 hc(TRIG_PIN, ECHO_PIN);        // HCSR04 object - ultrasonic sensor. 
-const unsigned int MAX_DIST = 23200;  //Anything over 400 cm (23200 us pulse) is "out of range" for our sensor. 
-float originalDistance; 
-float currentDistance;      
+HCSR04 hc(TRIG_PIN, ECHO_PIN);        // HCSR04 object - ultrasonic sensor.
+const unsigned int MAX_DIST = 23200;  //Anything over 400 cm (23200 us pulse) is "out of range" for our sensor.
+float originalDistance = 0;
+float currentDistance = 0;
 
-Adafruit_Si7021 temperatureSensor = Adafruit_Si7021();  //Si7021 object - temp/humidity sensor. 
-float tempCelsius;                    
-float tempFarenheit;                  
+Adafruit_Si7021 temperatureSensor = Adafruit_Si7021();  //Si7021 object - temp/humidity sensor.
+float tempCelsius;
+float tempFarenheit;
 float humidity;
 
 Adafruit_BMP085 pressureSensor;       // BMP-180 object - pressure sensor.
-float pressure;                       
-float pressureInches; 
+float pressure;
+float pressureInches;
 
 RTC_DS3231 rtc;                       // RTC object - real-time clock.
 
@@ -33,52 +32,73 @@ int peopleCounter;
 int currentState = 0;
 int previousState = 0;
 
-File dataFile; 
+File dataFile;
+
 
 void setup() {
 
-  // Open serial comm & wait for port to open. 
+  // Open serial comm & wait for port to open.
   Serial.begin(9600);
 
-  while (!Serial);          // Wait for serial port to connect. 
+  while (!Serial);          // Wait for serial port to connect.
 
+  Serial.print("Initializing SD card...");
+  // make sure that the default chip select pin is set to
+  // output, even if you don't use it:
+  pinMode(SS, OUTPUT);
+
+  // see if the card is present and can be initialized:
+  if (!SD.begin(4))
+  {
+    Serial.println("Card failed, or not present");
+    // don't do anything more:
+
+    while (1) ;
+  }
+  Serial.println("card initialized.");
+
+  //  Open up the file we're going to log to!
+  dataFile = SD.open("datalog.txt", FILE_WRITE);
+  if (! dataFile)
+  {
+    Serial.println("error opening datalog.txt");
+    //      Wait forever since we cant write data
+    while (1) ;
+  }
 
   // RTC setup:
-  if(!rtc.begin()){
+  if (!rtc.begin()) {
     Serial.println("Could not find RTC");
-    while(1);
+    while (1);
   }
-  if(rtc.lostPower()){
+  if (rtc.lostPower()) {
     Serial.println("RTC lost power, let's set the time.");
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));           //Sets RTC to date & time when sketch was compiled. 
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));           //Sets RTC to date & time when sketch was compiled.
   }
   Serial.println("RTC............OK!");
 
 
   // BMP-180 setup:
-  if(!pressureSensor.begin()){
+  if (!pressureSensor.begin()) {
     Serial.println("Could not find a valid BMP-180 sensor, check wiring.");
-    while(1);
+    while (1);
   }
   Serial.println("Adafruit BMP-180............OK!");
 
 
   // Si7021 setup:
-  if(!temperatureSensor.begin()){
+  if (!temperatureSensor.begin()) {
     Serial.println("Did not find Si7021 sensor.");
-    while(1);
+    while (1);
   }
   Serial.println("Adafruit Si7021..............OK!");
 
 
-//  // Get original distance from device & wall to compare to. 
+  // Get original distance from device & wall to compare to.
   Serial.print("The original distance between the wall & the device is ");
-  originalDistance = (int) hc.dist();
+  originalDistance = calculateDistance(1);
   Serial.print(originalDistance);
   Serial.println();
-
-  
-
 
 }
 
@@ -86,14 +106,51 @@ void loop() {
 
   DateTime now = rtc.now();
 
+  dataFile = SD.open("WeatherStationLog.txt", FILE_WRITE);   // Opens the file for SD card reader
+
   pressure = pressureSensor.readPressure();         // Read barometric pressure from BMP-180.
   pressureInches = pressure * 0.00029530;           // Conversion pascals to inches.
 
   tempCelsius = temperatureSensor.readTemperature(), 2;    // Read temperature from Si7021.
-  tempFarenheit = tempCelsius * 1.8 + 32;           // Conversion C to F. 
+  tempFarenheit = tempCelsius * 1.8 + 32;           // Conversion C to F.
 
   humidity = temperatureSensor.readHumidity(), 2;          // Read humidity from Si7021.
-  
+
+  currentDistance = calculateDistance(1);
+
+  while (currentDistance > 1000) {
+    currentDistance = calculateDistance(1);
+  }
+
+  //People counter: states allow to check if someone is standing in front of the device & not count that person. 
+  if (currentDistance + 3 < originalDistance) {   // +3 = error margin.
+    currentState = 1;
+  }
+  else {
+    currentState = 0;
+  }
+  delay(5);
+  if (currentState != previousState) {
+    if (currentState == 1) {
+      peopleCounter += 1;
+    }
+  }
+  previousState = currentState;
+
+  if(now.second() % 10 == 0){
+    printData();
+  }
+
+  delay(50);
+
+  dataFile.close();
+
+}
+
+void printData() {
+
+  DateTime now = rtc.now();
+
   Serial.println();
   Serial.println("================================================================================================================");
 
@@ -116,74 +173,84 @@ void loop() {
   Serial.println(peopleCounter);
 
   Serial.print("Distance (cm): ");
-  currentDistance = calculateDistance(20);
   Serial.println(currentDistance);
 
-  if (currentDistance + 3 < originalDistance){
- currentState = 1;
- }
- else {
- currentState = 0;
- }
- delay(5);
- if(currentState != previousState){
-if(currentState == 1){
-peopleCounter += 1;
-}
- }
-
-
-
-  delay(1);
-
-  
 
 }
 
+void printDataToSD() {
 
-int calculateDistance(int nbrOfReadings){
+  DateTime now = rtc.now();
 
-   unsigned long t1;
-   unsigned long t2;
-   unsigned long pulse_width;
-   float cm;
-   float inches;
-   float totalCm;
-   float totalInches;
-   float distanceCm;
-   float distanceInches;
+  dataFile.println();
+  dataFile.println("================================================================================================================");
 
-   for (int i=0; i<nbrOfReadings; i++){
+  formatDateToSD(now);
+  formatTimeToSD(now);
 
-      // Hold the trigger pin high for at least 10 us.
-      digitalWrite(TRIG_PIN, HIGH);
-      delayMicroseconds(10);
-      digitalWrite(TRIG_PIN, LOW);
+  dataFile.print("Temperature (F): ");
+  dataFile.println(tempFarenheit);
 
-      // Wait for pulse on echo pin.
-      while (digitalRead(ECHO_PIN) == 0);
+  dataFile.print("Humidity (%): ");
+  dataFile.println(humidity);
 
-      // Measure how long the echo pin was held high (pulse width).
-      t1 = micros();
-      while(digitalRead(ECHO_PIN) == 1);
-      t2 = micros();
-      pulse_width = t2 - t1;
+  dataFile.print("Pressure (in): ");
+  dataFile.println(pressureInches);
 
-      // Calculate distance in cm & in. Constants are from datasheet for sensor. 
-      cm = pulse_width / 58.0;
-      inches = pulse_width / 148.0;
+  dataFile.print("Distance station - wall (cm): ");
+  dataFile.println(originalDistance);
 
-      // Add to variable to later calculate average for more precise value. 
-      totalCm += cm;
-      totalInches += inches;
-    
-   }
+  dataFile.print("People: ");
+  dataFile.println(peopleCounter);
 
-   distanceCm = totalCm / nbrOfReadings;
-   distanceInches = totalInches / nbrOfReadings;
+  dataFile.print("Distance (cm): ");
+  dataFile.println(currentDistance);
 
-   return distanceCm;
-    
+
+}
+
+
+int calculateDistance(int nbrOfReadings) {
+
+  unsigned long t1;
+  unsigned long t2;
+  unsigned long pulse_width;
+  float cm;
+  float totalCm;
+  float distanceCm;
+
+  for (int i = 0; i < nbrOfReadings; i++) {
+
+    pinMode(TRIG_PIN, OUTPUT);
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+
+    // Hold the trigger pin high for at least 10 us.
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+
+    // Wait for pulse on echo pin.
+    while (digitalRead(ECHO_PIN) == 0);
+
+    // Measure how long the echo pin was held high (pulse width).
+    t1 = micros();
+    while (digitalRead(ECHO_PIN) == 1);
+    t2 = micros();
+    pulse_width = t2 - t1;
+
+    // Calculate distance in cm & in. Constants are from datasheet for sensor.
+    cm = pulse_width / 58.0;
+
+    // Add to variable to later calculate average for more precise value.
+    totalCm += cm;
+
+  }
+
+  distanceCm = totalCm / nbrOfReadings;
+
+  return distanceCm;
+
 }
 
 
@@ -202,7 +269,6 @@ void formatDateToSerial(DateTime currentTime) {
 
   Serial.print(currentTime.day(), DEC);
   Serial.print('/');
-
   Serial.print(currentTime.year(), DEC);
   Serial.print(" ");
 }
@@ -231,6 +297,47 @@ void formatTimeToSerial(DateTime currentTime) {
 
 }
 
+void formatDateToSD(DateTime currentTime) {
+
+  dataFile.println();         //For formatting sakes on the serial monitor.
+  if (currentTime.month() < 10)
+    dataFile.print ("0");   // Adds a 0 to the hour if it is less than 10
+
+  dataFile.print(currentTime.month(), DEC);
+  dataFile.print('/');
+
+  if (currentTime.day() < 10)
+    dataFile.print ("0");   // Adds a 0 to the hour if it is less than 10
+
+  dataFile.print(currentTime.day(), DEC);
+  dataFile.print('/');
+  dataFile.print(currentTime.year(), DEC);
+  dataFile.print(" ");
+}
+
+
+
+void formatTimeToSD(DateTime currentTime) {
+
+  if (currentTime.hour() < 10)
+    dataFile.print ("0");   // Adds a 0 to the hour if it is less than 10
+
+  dataFile.print(currentTime.hour(), DEC);
+  dataFile.print(':');
+
+  if (currentTime.minute() < 10)
+    dataFile.print ("0");   // Adds a 0 to the hour if it is less than 10
+
+  dataFile.print(currentTime.minute(), DEC);
+  dataFile.print(':');
+
+  if (currentTime.second() < 10)
+    dataFile.print ("0");   // Adds a 0 to the hour if it is less than 10
+
+  dataFile.print(currentTime.second(), DEC);
+  dataFile.println(" ");
+
+}
 
 
 
