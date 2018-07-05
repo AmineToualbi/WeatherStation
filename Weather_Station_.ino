@@ -137,7 +137,7 @@ void loop() {
   }
   previousState = currentState;
 
-  if(now.second() % 10 == 0){
+  if(now.second() % 3 == 0){
     printData();
   }
 
