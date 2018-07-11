@@ -34,6 +34,10 @@ int previousState = 0;
 
 File dataFile;
 
+bool sendReadingOnOpening = true;
+static bool firstReading = true;
+
+char pplFormat[3];
 
 void setup() {
 
@@ -42,7 +46,8 @@ void setup() {
 
   while (!Serial);          // Wait for serial port to connect.
 
-  Serial.print("Initializing SD card...");
+
+//  Serial.print("Initializing SD card...");
   // make sure that the default chip select pin is set to
   // output, even if you don't use it:
   pinMode(SS, OUTPUT);
@@ -50,55 +55,55 @@ void setup() {
   // see if the card is present and can be initialized:
   if (!SD.begin(4))
   {
-    Serial.println("Card failed, or not present");
+  //  Serial.println("Card failed, or not present");
     // don't do anything more:
 
     while (1) ;
   }
-  Serial.println("card initialized.");
+  //Serial.println("card initialized.");
 
   //  Open up the file we're going to log to!
   dataFile = SD.open("datalog.txt", FILE_WRITE);
   if (! dataFile)
   {
-    Serial.println("error opening datalog.txt");
+    //Serial.println("error opening datalog.txt");
     //      Wait forever since we cant write data
     while (1) ;
   }
 
   // RTC setup:
   if (!rtc.begin()) {
-    Serial.println("Could not find RTC");
+   // Serial.println("Could not find RTC");
     while (1);
   }
   if (rtc.lostPower()) {
-    Serial.println("RTC lost power, let's set the time.");
+   // Serial.println("RTC lost power, let's set the time.");
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));           //Sets RTC to date & time when sketch was compiled.
   }
-  Serial.println("RTC............OK!");
+  //Serial.println("RTC............OK!");
 
 
   // BMP-180 setup:
   if (!pressureSensor.begin()) {
-    Serial.println("Could not find a valid BMP-180 sensor, check wiring.");
+    //Serial.println("Could not find a valid BMP-180 sensor, check wiring.");
     while (1);
   }
-  Serial.println("Adafruit BMP-180............OK!");
+  //Serial.println("Adafruit BMP-180............OK!");
 
 
   // Si7021 setup:
   if (!temperatureSensor.begin()) {
-    Serial.println("Did not find Si7021 sensor.");
+   // Serial.println("Did not find Si7021 sensor.");
     while (1);
   }
-  Serial.println("Adafruit Si7021..............OK!");
+  //Serial.println("Adafruit Si7021..............OK!");
 
 
   // Get original distance from device & wall to compare to.
-  Serial.print("The original distance between the wall & the device is ");
+ // Serial.print("The original distance between the wall & the device is ");
   originalDistance = calculateDistance(1);
-  Serial.print(originalDistance);
-  Serial.println();
+ // Serial.print(originalDistance);
+  //Serial.println();
 
 }
 
@@ -137,7 +142,8 @@ void loop() {
   }
   previousState = currentState;
 
-  if(now.second() % 3 == 0){
+
+  if(now.second() % 5 == 0 ){
     printData();
   }
 
@@ -151,8 +157,14 @@ void printData() {
 
   DateTime now = rtc.now();
 
+  if(firstReading == false){
+    Serial.println();
+  //Serial.println("================================================================================================================");
   Serial.println();
-  Serial.println("================================================================================================================");
+  }
+  else{
+    firstReading = false;
+  }
 
   formatDateToSerial(now);
   formatTimeToSerial(now);
@@ -166,14 +178,30 @@ void printData() {
   Serial.print("Pressure (in): ");
   Serial.println(pressureInches);
 
+
   Serial.print("Distance station - wall (cm): ");
   Serial.println(originalDistance);
 
-  Serial.print("People: ");
-  Serial.println(peopleCounter);
+  Serial.print("People: ");         
+  String ppl = String(peopleCounter);  //Formatting with 4 digits for app retrieval. 
+  String format = "";
+  if(peopleCounter < 10){
+    format = "000";
+  }
+  else if(peopleCounter < 100 && peopleCounter > 9){
+      format = "00";
+  }
+  else if(peopleCounter < 1000 && peopleCounter > 99){
+    format = "0";
+  }
+  format = format + ppl;
+  Serial.println(format);
 
+  
   Serial.print("Distance (cm): ");
   Serial.println(currentDistance);
+
+  delay(5000);    //Set it to whatever update time is => forces only 1 print of data. 
 
 
 }
@@ -257,7 +285,7 @@ int calculateDistance(int nbrOfReadings) {
 
 void formatDateToSerial(DateTime currentTime) {
 
-  Serial.println();         //For formatting sakes on the serial monitor.
+  //Serial.println();         //For formatting sakes on the serial monitor.
   if (currentTime.month() < 10)
     Serial.print ("0");   // Adds a 0 to the hour if it is less than 10
 
